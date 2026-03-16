@@ -142,8 +142,8 @@ namespace OberynsClearsTracker
 
             _mainWindow = new StandardWindow(
                 windowBackground,
-                new Rectangle(25, 26, 820, 680),
-                new Rectangle(40, 50, 810, 600))
+                new Rectangle(25, 26, 860, 720),
+                new Rectangle(40, 50, 840, 680))
             {
                 Parent = GameService.Graphics.SpriteScreen,
                 Title = "Clears Tracker",
@@ -169,7 +169,7 @@ namespace OberynsClearsTracker
             {
                 Parent = _mainWindow,
                 Location = new Point(0, 0),
-                Width = 810,
+                Width = 840,
                 Height = 40,
                 BackgroundColor = Color.Black * 0.3f
             };
@@ -231,8 +231,8 @@ namespace OberynsClearsTracker
             {
                 Parent = _mainWindow,
                 Location = new Point(0, 45),
-                Width = 810,
-                Height = 540,
+                Width = 840,
+                Height = 650,
                 Visible = false
             };
 
@@ -240,8 +240,8 @@ namespace OberynsClearsTracker
             {
                 Parent = _mainWindow,
                 Location = new Point(0, 45),
-                Width = 810,
-                Height = 540,
+                Width = 840,
+                Height = 620,
                 Visible = false
             };
 
@@ -249,23 +249,23 @@ namespace OberynsClearsTracker
             {
                 Parent = _mainWindow,
                 Location = new Point(0, 45),
-                Width = 810,
-                Height = 540,
+                Width = 840,
+                Height = 620,
                 Visible = false
             };
 
             _dailyView = new DailyView(ContentsManager);
             _dailyView.Parent = _dailyContent;
-            _dailyView.Width = 810;
-            _dailyView.Height = 540;
+            _dailyView.Width = 840;
+            _dailyView.Height = 620;
 
             _weeklyRaidsView = new WeeklyView(ContentsManager, showRaids: true, _forgingSteelPersistence);
             _weeklyRaidsView.Parent = _weeklyRaidsContent;
-            _weeklyRaidsView.Initialize(810, 540);
+            _weeklyRaidsView.Initialize(840, 620);
 
             _weeklyStrikesView = new WeeklyView(ContentsManager, showRaids: false, _forgingSteelPersistence);
             _weeklyStrikesView.Parent = _weeklyStrikesContent;
-            _weeklyStrikesView.Initialize(810, 540);
+            _weeklyStrikesView.Initialize(840, 620);
         }
 
         private void ShowTab(Panel tabButton, Panel content)
