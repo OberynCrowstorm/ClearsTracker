@@ -3,9 +3,10 @@ using Blish_HUD.Content;
 using Blish_HUD.Controls;
 using Blish_HUD.Modules;
 using Blish_HUD.Modules.Managers;
+using Blish_HUD.Settings;
 using Gw2Sharp.WebApi.V2.Models;
 using Microsoft.Xna.Framework;
-using Microsoft.Xna.Framework.Content;
+using System;
 using System.Collections.Generic;
 using System.ComponentModel.Composition;
 using System.Linq;
@@ -20,36 +21,46 @@ namespace OberynsClearsTracker
     {
         private static readonly Logger Logger = Logger.GetLogger<OberynsClearsTracker>();
 
+        private class TabDefinition
+        {
+            public string Id { get; set; }
+            public Func<string> GetLabel { get; set; }
+            public Panel Content { get; set; }
+            public Panel Button { get; set; }
+            public Label Label { get; set; }
+            public Panel Underline { get; set; }
+            public SettingEntry<bool> IsEnabled { get; set; }
+        }
+
         private ApiService _apiService;
         private ForgingSteelPersistence _forgingSteelPersistence;
+        private ModuleSettings _moduleSettings;
+        private SettingsWindow _settingsWindow;
 
         private CornerIcon _cornerIcon;
         private StandardWindow _mainWindow;
+        private Panel _tabBar;
 
-        // Tab buttons
-        private Panel _dailyTabButton;
-        private Panel _weeklyRaidsTabButton;
-        private Panel _weeklyStrikesTabButton;
+        private List<TabDefinition> _tabs = new List<TabDefinition>();
+        private TabDefinition _activeTab;
 
-        // Tab labels
-        private Label _dailyTabLabel;
-        private Label _weeklyRaidsTabLabel;
-        private Label _weeklyStrikesTabLabel;
-
-        // Tab underlines
-        private Panel _dailyTabUnderline;
-        private Panel _weeklyRaidsTabUnderline;
-        private Panel _weeklyStrikesTabUnderline;
-
-        // Content panels
         private Panel _dailyContent;
         private Panel _weeklyRaidsContent;
         private Panel _weeklyStrikesContent;
 
-        // Views
         private DailyView _dailyView;
         private WeeklyView _weeklyRaidsView;
         private WeeklyView _weeklyStrikesView;
+
+        private DateTime _lastRefresh = DateTime.MinValue;
+        private System.Threading.Timer _refreshTimer;
+
+        private const int TabBarY = 6;
+        private const int TabBarHeight = 40;
+        private const int ContentY = TabBarY + TabBarHeight + 5;
+        private const int ContentWidth = 840;
+        private const int ContentHeight = 610;
+        private const int WindowWidth = 840;
 
         internal Gw2ApiManager Gw2ApiManager => this.ModuleParameters.Gw2ApiManager;
         internal ContentsManager ContentsManager => this.ModuleParameters.ContentsManager;
@@ -62,6 +73,21 @@ namespace OberynsClearsTracker
             Logger.Info("Module constructor called.");
         }
 
+        protected override void DefineSettings(SettingCollection settings)
+        {
+            _moduleSettings = new ModuleSettings(settings);
+        }
+
+        private void OnKeyPressed(object sender, Blish_HUD.Input.KeyboardEventArgs e)
+        {
+            if (e.Key == Microsoft.Xna.Framework.Input.Keys.Escape && _mainWindow.Visible)
+                _mainWindow.Hide();
+        }
+
+        private void OnShowDailyTabChanged(object s, ValueChangedEventArgs<bool> e) => RebuildTabBar();
+        private void OnShowWeeklyRaidsChanged(object s, ValueChangedEventArgs<bool> e) => RebuildTabBar();
+        private void OnShowWeeklyStrikesChanged(object s, ValueChangedEventArgs<bool> e) => RebuildTabBar();
+
         protected override async Task LoadAsync()
         {
             Logger.Info("LoadAsync started.");
@@ -69,7 +95,12 @@ namespace OberynsClearsTracker
             _forgingSteelPersistence = ForgingSteelPersistence.Load(DirectoriesManager);
             _apiService = new ApiService(Gw2ApiManager);
 
+            GameService.Input.Keyboard.KeyPressed += OnKeyPressed;
+
             BuildWindow();
+            BuildContentPanels();
+            BuildTabBar();
+            ShowFirstVisibleTab();
 
             _cornerIcon = new CornerIcon
             {
@@ -84,56 +115,37 @@ namespace OberynsClearsTracker
                 if (_mainWindow.Visible)
                     _mainWindow.Hide();
                 else
+                {
                     _mainWindow.Show();
+                    _ = TryRefreshAsync();
+                }
             };
 
+            _settingsWindow = new SettingsWindow(_moduleSettings);
+
+            var contextMenu = new ContextMenuStrip();
+            var settingsItem = new ContextMenuStripItem("Settings");
+            settingsItem.Click += (s, e) => _settingsWindow.Show();
+            contextMenu.AddMenuItem(settingsItem);
+            _cornerIcon.Menu = contextMenu;
+
+            // Wire up setting change listeners
+            _moduleSettings.ShowDailyTab.SettingChanged += OnShowDailyTabChanged;
+            _moduleSettings.ShowWeeklyRaids.SettingChanged += OnShowWeeklyRaidsChanged;
+            _moduleSettings.ShowWeeklyStrikes.SettingChanged += OnShowWeeklyStrikesChanged;
+
             Gw2ApiManager.SubtokenUpdated += OnSubtokenUpdated;
+
+            _refreshTimer = new System.Threading.Timer(
+                async _ => await TryRefreshAsync(),
+                null,
+                TimeSpan.FromMinutes(5),
+                TimeSpan.FromMinutes(5)
+            );
 
             await TryRefreshAsync();
 
             Logger.Info("LoadAsync finished.");
-        }
-
-        private async void OnSubtokenUpdated(object sender, ValueEventArgs<IEnumerable<TokenPermission>> e)
-        {
-            Logger.Info("SubtokenUpdated fired.");
-            await TryRefreshAsync();
-        }
-
-        private async Task TryRefreshAsync()
-        {
-            if (_apiService == null || _dailyView == null)
-                return;
-
-            await _apiService.UpdateAllClearsAsync();
-
-            GameService.Graphics.QueueMainThreadRender(_ =>
-            {
-                if (GameService.GameIntegration.Gw2Instance.IsInGame)
-                    //  _mainWindow.Show();
-                   
-                UpdateTabLabels();
-                _dailyView.Refresh(_apiService.TodaysBounties, _apiService.TomorrowsBounties);
-                _weeklyRaidsView.Refresh();
-                _weeklyStrikesView.Refresh();
-            });
-        }
-
-        private void UpdateTabLabels()
-        {
-            int dailyCompleted = _apiService.TodaysBounties.Count(b => b.IsCompleted);
-            _dailyTabLabel.Text = $"Daily ({dailyCompleted}/4)";
-
-            int clearedWings = 0;
-            foreach (var wing in RaidData.Wings)
-                if (wing.IsFullyCleared) clearedWings++;
-            _weeklyRaidsTabLabel.Text = $"Weekly Raids ({clearedWings}/8 wings)";
-
-            int clearedStrikes = 0;
-            foreach (var expansion in RaidData.Expansions)
-                foreach (var strike in expansion.Strikes)
-                    if (strike.IsWeeklyCleared) clearedStrikes++;
-            _weeklyStrikesTabLabel.Text = $"Weekly Strikes ({clearedStrikes}/14)";
         }
 
         private void BuildWindow()
@@ -147,82 +159,11 @@ namespace OberynsClearsTracker
             {
                 Parent = GameService.Graphics.SpriteScreen,
                 Title = "Clears Tracker",
-                Subtitle = "Oberyn",
+                Subtitle = "Never refreshed",
                 Location = new Point(50, 50),
                 SavesPosition = true,
                 Id = "ClearsTracker_MainWindow"
             };
-
-            BuildTabBar();
-            BuildContentPanels();
-
-            ShowTab(_dailyTabButton, _dailyContent);
-
-            // Only show window if GW2 is running
-            //if (GameService.GameIntegration.Gw2Instance.IsInGame)
-            //    _mainWindow.Show();
-        }
-
-        private void BuildTabBar()
-        {
-            var tabBar = new Panel
-            {
-                Parent = _mainWindow,
-                Location = new Point(0, 0),
-                Width = 840,
-                Height = 40,
-                BackgroundColor = Color.Black * 0.3f
-            };
-
-            int tabWidth = 270;
-
-            _dailyTabButton = BuildTabButton(tabBar, "Daily (0/4)", 0, tabWidth, out _dailyTabLabel, out _dailyTabUnderline);
-            _dailyTabButton.LeftMouseButtonReleased += (s, e) =>
-                GameService.Graphics.QueueMainThreadRender(_ => ShowTab(_dailyTabButton, _dailyContent));
-
-            _weeklyRaidsTabButton = BuildTabButton(tabBar, "Weekly Raids (0/8 wings)", tabWidth, tabWidth, out _weeklyRaidsTabLabel, out _weeklyRaidsTabUnderline);
-            _weeklyRaidsTabButton.LeftMouseButtonReleased += (s, e) =>
-                GameService.Graphics.QueueMainThreadRender(_ => ShowTab(_weeklyRaidsTabButton, _weeklyRaidsContent));
-
-            _weeklyStrikesTabButton = BuildTabButton(tabBar, "Weekly Strikes (0/14)", tabWidth * 2, tabWidth, out _weeklyStrikesTabLabel, out _weeklyStrikesTabUnderline);
-            _weeklyStrikesTabButton.LeftMouseButtonReleased += (s, e) =>
-                GameService.Graphics.QueueMainThreadRender(_ => ShowTab(_weeklyStrikesTabButton, _weeklyStrikesContent));
-        }
-
-        private Panel BuildTabButton(Panel parent, string text, int x, int width, out Label label, out Panel underline)
-        {
-            var button = new Panel
-            {
-                Parent = parent,
-                Location = new Point(x, 0),
-                Width = width,
-                Height = 40,
-                BackgroundColor = Color.Transparent
-            };
-
-            label = new Label
-            {
-                Parent = button,
-                Text = text,
-                Width = width,
-                Height = 34,
-                HorizontalAlignment = HorizontalAlignment.Center,
-                VerticalAlignment = VerticalAlignment.Middle,
-                TextColor = Color.White,
-                Font = GameService.Content.DefaultFont14
-            };
-
-            underline = new Panel
-            {
-                Parent = button,
-                Location = new Point(10, 36),
-                Width = width - 20,
-                Height = 3,
-                BackgroundColor = new Color(255, 200, 0),
-                Visible = false
-            };
-
-            return button;
         }
 
         private void BuildContentPanels()
@@ -230,70 +171,262 @@ namespace OberynsClearsTracker
             _dailyContent = new Panel
             {
                 Parent = _mainWindow,
-                Location = new Point(0, 45),
-                Width = 840,
-                Height = 650,
+                Location = new Point(0, ContentY),
+                Width = ContentWidth,
+                Height = ContentHeight,
                 Visible = false
             };
 
             _weeklyRaidsContent = new Panel
             {
                 Parent = _mainWindow,
-                Location = new Point(0, 45),
-                Width = 840,
-                Height = 620,
+                Location = new Point(0, ContentY),
+                Width = ContentWidth,
+                Height = ContentHeight,
                 Visible = false
             };
 
             _weeklyStrikesContent = new Panel
             {
                 Parent = _mainWindow,
-                Location = new Point(0, 45),
-                Width = 840,
-                Height = 620,
+                Location = new Point(0, ContentY),
+                Width = ContentWidth,
+                Height = ContentHeight,
                 Visible = false
             };
 
             _dailyView = new DailyView(ContentsManager);
             _dailyView.Parent = _dailyContent;
-            _dailyView.Width = 840;
-            _dailyView.Height = 620;
+            _dailyView.Width = ContentWidth;
+            _dailyView.Height = ContentHeight;
 
             _weeklyRaidsView = new WeeklyView(ContentsManager, showRaids: true, _forgingSteelPersistence);
             _weeklyRaidsView.Parent = _weeklyRaidsContent;
-            _weeklyRaidsView.Initialize(840, 620);
+            _weeklyRaidsView.Initialize(ContentWidth, ContentHeight);
 
             _weeklyStrikesView = new WeeklyView(ContentsManager, showRaids: false, _forgingSteelPersistence);
             _weeklyStrikesView.Parent = _weeklyStrikesContent;
-            _weeklyStrikesView.Initialize(840, 620);
+            _weeklyStrikesView.Initialize(ContentWidth, ContentHeight);
         }
 
-        private void ShowTab(Panel tabButton, Panel content)
+        private void BuildTabBar()
         {
+            // Dispose existing tab buttons if rebuilding
+            foreach (var tab in _tabs)
+                tab.Button?.Dispose();
+            _tabs.Clear();
+
+            // Dispose existing tab bar if rebuilding
+            _tabBar?.Dispose();
+
+            _tabBar = new Panel
+            {
+                Parent = _mainWindow,
+                Location = new Point(0, TabBarY),
+                Width = WindowWidth,
+                Height = TabBarHeight,
+                BackgroundColor = Color.Black * 0.3f
+            };
+
+            // Build tab definitions based on settings
+            var visibleTabs = new List<(string id, Func<string> getLabel, Panel content, SettingEntry<bool> setting)>();
+
+            if (_moduleSettings.ShowDailyTab.Value)
+                visibleTabs.Add(("daily", GetDailyLabel, _dailyContent, _moduleSettings.ShowDailyTab));
+
+            if (_moduleSettings.ShowWeeklyRaids.Value)
+                visibleTabs.Add(("raids", GetRaidsLabel, _weeklyRaidsContent, _moduleSettings.ShowWeeklyRaids));
+
+            if (_moduleSettings.ShowWeeklyStrikes.Value)
+                visibleTabs.Add(("strikes", GetStrikesLabel, _weeklyStrikesContent, _moduleSettings.ShowWeeklyStrikes));
+
+            if (visibleTabs.Count == 0) return;
+
+            int tabWidth = WindowWidth / visibleTabs.Count;
+
+            for (int i = 0; i < visibleTabs.Count; i++)
+            {
+                var (id, getLabel, content, setting) = visibleTabs[i];
+                int x = i * tabWidth;
+
+                var button = new Panel
+                {
+                    Parent = _tabBar,
+                    Location = new Point(x, 0),
+                    Width = tabWidth,
+                    Height = TabBarHeight,
+                    BackgroundColor = Color.Transparent
+                };
+
+                var label = new Label
+                {
+                    Parent = button,
+                    Text = getLabel(),
+                    Width = tabWidth,
+                    Height = 34,
+                    HorizontalAlignment = HorizontalAlignment.Center,
+                    VerticalAlignment = VerticalAlignment.Middle,
+                    TextColor = Color.White,
+                    Font = GameService.Content.DefaultFont14
+                };
+
+                var underline = new Panel
+                {
+                    Parent = button,
+                    Location = new Point(10, 36),
+                    Width = tabWidth - 20,
+                    Height = 3,
+                    BackgroundColor = new Color(255, 200, 0),
+                    Visible = false
+                };
+
+                var tab = new TabDefinition
+                {
+                    Id = id,
+                    GetLabel = getLabel,
+                    Content = content,
+                    Button = button,
+                    Label = label,
+                    Underline = underline,
+                    IsEnabled = setting
+                };
+
+                var capturedTab = tab;
+                button.LeftMouseButtonReleased += (s, e) =>
+                    GameService.Graphics.QueueMainThreadRender(_ => ShowTab(capturedTab));
+
+                _tabs.Add(tab);
+            }
+        }
+
+        private void RebuildTabBar()
+        {
+            GameService.Graphics.QueueMainThreadRender(_ =>
+            {
+                BuildTabBar();
+                ShowFirstVisibleTab();
+            });
+            _ = TryRefreshAsync();
+        }
+
+        private void ShowTab(TabDefinition tab)
+        {
+            // Hide all content panels
             _dailyContent.Visible = false;
             _weeklyRaidsContent.Visible = false;
             _weeklyStrikesContent.Visible = false;
 
-            _dailyTabUnderline.Visible = false;
-            _weeklyRaidsTabUnderline.Visible = false;
-            _weeklyStrikesTabUnderline.Visible = false;
+            // Hide all underlines
+            foreach (var t in _tabs)
+                t.Underline.Visible = false;
 
-            content.Visible = true;
+            // Show selected
+            tab.Content.Visible = true;
+            tab.Underline.Visible = true;
+            _activeTab = tab;
+        }
 
-            if (tabButton == _dailyTabButton)
-                _dailyTabUnderline.Visible = true;
-            else if (tabButton == _weeklyRaidsTabButton)
-                _weeklyRaidsTabUnderline.Visible = true;
-            else if (tabButton == _weeklyStrikesTabButton)
-                _weeklyStrikesTabUnderline.Visible = true;
+        private void ShowFirstVisibleTab()
+        {
+            if (_tabs.Count > 0)
+                ShowTab(_tabs[0]);
+        }
+
+        private string GetDailyLabel()
+        {
+            int completed = 0;
+            int total = 0;
+
+            if (_moduleSettings.ShowDailyTab.Value && _apiService?.TodaysBounties != null)
+            {
+                completed += _apiService.TodaysBounties.Count(b => b.IsCompleted);
+                total += 4;
+            }
+
+            return total > 0 ? $"Daily ({completed}/{total})" : "Daily";
+        }
+
+        private string GetRaidsLabel()
+        {
+            int clearedWings = 0;
+            foreach (var wing in RaidData.Wings)
+                if (wing.IsFullyCleared) clearedWings++;
+            return $"Weekly Raids ({clearedWings}/8 wings)";
+        }
+
+        private string GetStrikesLabel()
+        {
+            int clearedStrikes = 0;
+            foreach (var expansion in RaidData.Expansions)
+                foreach (var strike in expansion.Strikes)
+                    if (strike.IsWeeklyCleared) clearedStrikes++;
+            return $"Weekly Strikes ({clearedStrikes}/14)";
+        }
+
+        private void UpdateTabLabels()
+        {
+            foreach (var tab in _tabs)
+                tab.Label.Text = tab.GetLabel();
+        }
+
+        private async void OnSubtokenUpdated(object sender, ValueEventArgs<IEnumerable<TokenPermission>> e)
+        {
+            Logger.Info("SubtokenUpdated fired.");
+            await TryRefreshAsync();
+        }
+
+        private async Task TryRefreshAsync()
+        {
+            if (_apiService == null || _dailyView == null)
+                return;
+
+            GameService.Graphics.QueueMainThreadRender(_ =>
+            {
+                _mainWindow.Subtitle = "Refreshing...";
+            });
+
+            // Only fetch what's enabled
+            await _apiService.UpdateAllClearsAsync(
+                fetchRaids: _moduleSettings.ShowWeeklyRaids.Value,
+                fetchStrikes: _moduleSettings.ShowWeeklyStrikes.Value,
+                fetchBounties: _moduleSettings.ShowDailyTab.Value
+            );
+
+            GameService.Graphics.QueueMainThreadRender(_ =>
+            {
+                UpdateTabLabels();
+
+                if (_moduleSettings.ShowDailyTab.Value)
+                    _dailyView.Refresh(_apiService.TodaysBounties, _apiService.TomorrowsBounties);
+
+                if (_moduleSettings.ShowWeeklyRaids.Value)
+                    _weeklyRaidsView.Refresh();
+
+                if (_moduleSettings.ShowWeeklyStrikes.Value)
+                    _weeklyStrikesView.Refresh();
+
+                _lastRefresh = DateTime.Now;
+                _mainWindow.Subtitle = $"Refreshed {_lastRefresh:HH:mm}";
+            });
         }
 
         protected override void Unload()
         {
             Logger.Info("Unload called.");
             Gw2ApiManager.SubtokenUpdated -= OnSubtokenUpdated;
+            GameService.Input.Keyboard.KeyPressed -= OnKeyPressed;
+
+            if (_moduleSettings != null)
+            {
+                _moduleSettings.ShowDailyTab.SettingChanged -= OnShowDailyTabChanged;
+                _moduleSettings.ShowWeeklyRaids.SettingChanged -= OnShowWeeklyRaidsChanged;
+                _moduleSettings.ShowWeeklyStrikes.SettingChanged -= OnShowWeeklyStrikesChanged;
+            }
+
             _cornerIcon?.Dispose();
             _mainWindow?.Dispose();
+            _settingsWindow?.Dispose();
+            _refreshTimer?.Dispose();
         }
     }
 }

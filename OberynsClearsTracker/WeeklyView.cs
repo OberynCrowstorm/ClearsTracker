@@ -14,9 +14,28 @@ namespace OberynsClearsTracker
         private const int EmblemIconHeight = 98;
         private const int LabelHeight = 20;
         private const int ItemPadding = 6;
+        private const int OrbSize = 64;
+        private const int OrbSeparatorPadding = 24;
         private const int EmblemWidth = EmblemIconWidth + 20;
         private const int RowHeight = IconHeight + (LabelHeight * 2) + ItemPadding;
         private const int EmblemRowHeight = EmblemIconHeight + (LabelHeight * 2) + ItemPadding;
+
+        // .dat asset IDs for orbs
+        private const int OrbLockedAssetId = 2107931;
+        private const int OrbSteelAssetId = 2604578; // I  - Steel Echo
+        private const int OrbRavenAssetId = 2604579; // II - Raven Echo
+        private const int OrbShivepeakAssetId = 2604580; // III - Shiverpeak Echo
+        private const int OrbWhisperAssetId = 2604581; // IV - Whisper Echo
+        private const int OrbColdAssetId = 2604582; // V  - Cold Echo
+
+        private static readonly string[] OrbTooltips = new[]
+        {
+            "Steel Echo (Forging Steel)",
+            "Raven Echo (V&C, FoJ or BS)",
+            "Shiverpeak Echo (Shiverpeaks Pass)",
+            "Whisper Echo (WoJ)",
+            "Cold Echo (Cold War)"
+        };
 
         private const string RaidIconPath = "icons/raid_icons/";
         private const string StrikeIconPath = "icons/strike_icons/";
@@ -32,6 +51,9 @@ namespace OberynsClearsTracker
         private Image[] _expansionEmblemImages;
         private Label[] _expansionProgressLabels;
         private Image[][] _strikeImages;
+
+        // The 5 orb images for the Echo/Hum tracker
+        private Image[] _orbImages;
 
         public WeeklyView(ContentsManager contentsManager, bool showRaids, ForgingSteelPersistence forgingSteelPersistence) : base()
         {
@@ -191,7 +213,7 @@ namespace OberynsClearsTracker
                 ControlPadding = new Vector2(ItemPadding, 0)
             };
 
-            // Row 2: FS, CW (indices 5-6)
+            // Row 2: FS, CW + orbs (indices 5-6, then orbs)
             var row2 = new FlowPanel
             {
                 Parent = ibsContainer,
@@ -205,7 +227,11 @@ namespace OberynsClearsTracker
             for (int s = 0; s < expansion.Strikes.Length; s++)
             {
                 var strike = expansion.Strikes[s];
-                var iconPath = strike.IsWeeklyCleared
+                var isCleared = strike.ApiId == "forging_steel"
+                    ? _forgingSteelPersistence.IsCleared
+                    : strike.IsWeeklyCleared;
+
+                var iconPath = isCleared
                     ? $"{StrikeIconPath}{strike.IconId}_d.png"
                     : $"{StrikeIconPath}{strike.IconId}.png";
 
@@ -241,8 +267,102 @@ namespace OberynsClearsTracker
                         if (_forgingSteelPersistence.IsCleared) strikeCount++;
 
                         _expansionProgressLabels[capturedExpansionIndex].Text = $"{strikeCount}/{expansion.Strikes.Length}";
+
+                        // Refresh orb visuals when FS is toggled
+                        RefreshOrbs(OrbLogic.Calculate(_forgingSteelPersistence));
                     };
                 }
+            }
+
+            // Separator + orbs at the end of row 2
+            BuildOrbSeparator(row2);
+            BuildOrbs(row2);
+        }
+
+        private void BuildOrbSeparator(FlowPanel parent)
+        {
+            // A blank panel acting as a visual gap between CW and the orbs
+            new Panel
+            {
+                Parent = parent,
+                Width = OrbSeparatorPadding,
+                Height = EmblemRowHeight,
+                BackgroundColor = Color.Transparent
+            };
+        }
+
+        private void BuildOrbs(FlowPanel parent)
+        {
+            var orbState = OrbLogic.Calculate(_forgingSteelPersistence);
+            _orbImages = new Image[5];
+
+            bool[] lit = new[]
+            {
+                orbState.SteelOrb,
+                orbState.RavenOrb,
+                orbState.ShivepeakOrb,
+                orbState.WhisperOrb,
+                orbState.ColdOrb
+            };
+
+            int[] litAssetIds = new[]
+            {
+                OrbSteelAssetId,
+                OrbRavenAssetId,
+                OrbShivepeakAssetId,
+                OrbWhisperAssetId,
+                OrbColdAssetId
+            };
+
+            for (int i = 0; i < 5; i++)
+            {
+                var orbPanel = new Panel
+                {
+                    Parent = parent,
+                    Width = OrbSize,
+                    Height = EmblemRowHeight,
+                    BackgroundColor = Color.Transparent
+                };
+
+                int assetId = lit[i] ? litAssetIds[i] : OrbLockedAssetId;
+                int verticalOffset = (EmblemRowHeight - OrbSize) / 2;
+
+                _orbImages[i] = new Image(GameService.Content.DatAssetCache.GetTextureFromAssetId(assetId))
+                {
+                    Parent = orbPanel,
+                    Size = new Point(OrbSize, OrbSize),
+                    Location = new Point(0, verticalOffset),
+                    BasicTooltipText = OrbTooltips[i]
+                };
+            }
+        }
+
+        private void RefreshOrbs(OrbState orbState)
+        {
+            if (_orbImages == null) return;
+
+            bool[] lit = new[]
+            {
+                orbState.SteelOrb,
+                orbState.RavenOrb,
+                orbState.ShivepeakOrb,
+                orbState.WhisperOrb,
+                orbState.ColdOrb
+            };
+
+            int[] litAssetIds = new[]
+            {
+                OrbSteelAssetId,
+                OrbRavenAssetId,
+                OrbShivepeakAssetId,
+                OrbWhisperAssetId,
+                OrbColdAssetId
+            };
+
+            for (int i = 0; i < 5; i++)
+            {
+                int assetId = lit[i] ? litAssetIds[i] : OrbLockedAssetId;
+                _orbImages[i].Texture = GameService.Content.DatAssetCache.GetTextureFromAssetId(assetId);
             }
         }
 
@@ -437,15 +557,16 @@ namespace OberynsClearsTracker
 
         private string GetExpansionEmblemPath(ExpansionEntry expansion, int clearedCount)
         {
-            if (expansion.IsFullyCleared)
-                return $"{StrikeIconPath}{expansion.IconId}_d.png";
-
             if (expansion.Abbreviation == "IBS")
             {
                 var orbState = OrbLogic.Calculate(_forgingSteelPersistence);
-                int orbCount = orbState.TotalLit;
-                return $"{StrikeIconPath}{expansion.IconId}_{orbCount}.png";
+                if (orbState.AllLit)
+                    return $"{StrikeIconPath}{expansion.IconId}_d.png";
+                return $"{StrikeIconPath}{expansion.IconId}_{orbState.TotalLit}.png";
             }
+
+            if (expansion.IsFullyCleared)
+                return $"{StrikeIconPath}{expansion.IconId}_d.png";
 
             return $"{StrikeIconPath}{expansion.IconId}_{clearedCount}.png";
         }
@@ -510,12 +631,19 @@ namespace OberynsClearsTracker
                 for (int s = 0; s < expansion.Strikes.Length; s++)
                 {
                     var strike = expansion.Strikes[s];
-                    var iconPath = strike.IsWeeklyCleared
+                    var isCleared = strike.ApiId == "forging_steel"
+                        ? _forgingSteelPersistence.IsCleared
+                        : strike.IsWeeklyCleared;
+
+                    var iconPath = isCleared
                         ? $"{StrikeIconPath}{strike.IconId}_d.png"
                         : $"{StrikeIconPath}{strike.IconId}.png";
                     _strikeImages[e][s].Texture = _contentsManager.GetTexture(iconPath) ?? ContentService.Textures.Pixel;
                 }
             }
+
+            // Refresh orbs on every strike refresh
+            RefreshOrbs(OrbLogic.Calculate(_forgingSteelPersistence));
         }
     }
 }

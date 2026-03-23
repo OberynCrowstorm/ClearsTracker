@@ -2,7 +2,7 @@
   "name": "Oberyn's Clears Tracker",
   "version": "0.4.1",
   "namespace": "OberynsClearsTracker",
-  "package": "OberynsClearsTracker.dll",
+  "package": "Oberyns.ClearsTracker.dll",
   "manifest_version": 1,
   "description": "Tracks raid and strike clears. Known bugs/issues: 1. Unknown Slothasor API ID for Daily Raid Bounties - will not be registered as a daily cleared bounty. 2. Forging Steel is not tracked by the GW2 API - requires manual click on the strike icon to progress the weekly IBS completion track. Completion state is saved locally and resets with the weekly server reset.",
   "dependencies": {

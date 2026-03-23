@@ -34,7 +34,7 @@ namespace OberynsClearsTracker
             });
         }
 
-        public async Task UpdateAllClearsAsync()
+        public async Task UpdateAllClearsAsync(bool fetchRaids = true, bool fetchStrikes = true, bool fetchBounties = true)
         {
             if (!HasRequiredPermissions())
             {
@@ -44,9 +44,17 @@ namespace OberynsClearsTracker
 
             try
             {
-                var raidsTask = FetchRaidClearsAsync();
-                var achievementsTask = FetchAchievementsAsync();
-                var todayBountyTask = FetchTodaysBountyIdsAsync();
+                var raidsTask = fetchRaids
+                    ? FetchRaidClearsAsync()
+                    : Task.FromResult(new HashSet<string>());
+
+                var achievementsTask = (fetchStrikes || fetchBounties)
+                    ? FetchAchievementsAsync()
+                    : Task.FromResult(new List<AccountAchievement>());
+
+                var todayBountyTask = fetchBounties
+                    ? FetchTodaysBountyIdsAsync()
+                    : Task.FromResult(new HashSet<int>());
 
                 await Task.WhenAll(raidsTask, achievementsTask, todayBountyTask);
 
@@ -54,11 +62,18 @@ namespace OberynsClearsTracker
                 var accountAchievements = achievementsTask.Result;
                 var todaysBountyIds = todayBountyTask.Result;
 
-                UpdateWeeklyRaidClears(clearedRaidIds);
-                UpdateWeeklyStrikeClears(accountAchievements);
-                UpdateDailyBounties(accountAchievements, todaysBountyIds);
-                BuildTodaysBountySlots(todaysBountyIds, accountAchievements);
-                TomorrowsBounties = BountyRotationService.GetTomorrowsBounties();
+                if (fetchRaids)
+                    UpdateWeeklyRaidClears(clearedRaidIds);
+
+                if (fetchStrikes)
+                    UpdateWeeklyStrikeClears(accountAchievements);
+
+                if (fetchBounties)
+                {
+                    UpdateDailyBounties(accountAchievements, todaysBountyIds);
+                    BuildTodaysBountySlots(todaysBountyIds, accountAchievements);
+                    TomorrowsBounties = BountyRotationService.GetTomorrowsBounties();
+                }
             }
             catch (Exception ex)
             {

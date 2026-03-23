@@ -76,6 +76,14 @@ namespace OberynsClearsTracker
                     writer.Write(json);
                 }
             }
+            catch (UnauthorizedAccessException ex)
+            {
+                Logger.Warn(ex, "Access denied saving Forging Steel persistence.");
+                Blish_HUD.Debug.Contingency.NotifyFileSaveAccessDenied(
+                    GetConfigFileInfo().FullName,
+                    "Forging Steel clear state could not be saved."
+                );
+            }
             catch (Exception ex)
             {
                 Logger.Warn(ex, "Failed to save Forging Steel persistence.");

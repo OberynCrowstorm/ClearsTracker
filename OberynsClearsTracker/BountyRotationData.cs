@@ -53,7 +53,7 @@
             "qadim_the_peerless",
             "soulless_horror",
             "harvest_temple",
-            "dhuum",
+            "voice_in_the_void",
             "greer"
         };
     }

@@ -33,7 +33,7 @@ namespace OberynsClearsTracker
                 IconId = "wing2",
                 Bosses = new[]
                 {
-                    new BossEntry { Name = "Slothasor",    Abbreviation = "Slothasor", IconId = "w2_1", ApiId = "slothasor",   DailyBountyAchievementId = null },
+                    new BossEntry { Name = "Slothasor",    Abbreviation = "Slothasor", IconId = "w2_1", ApiId = "slothasor",   DailyBountyAchievementId = 9135 },
                     new BossEntry { Name = "Prison Camp",  Abbreviation = "PC",        IconId = "w2_2", ApiId = "bandit_trio", DailyBountyAchievementId = null },
                     new BossEntry { Name = "Matthias",     Abbreviation = "Matthias",  IconId = "w2_3", ApiId = "matthias",    DailyBountyAchievementId = 9160 },
                 }

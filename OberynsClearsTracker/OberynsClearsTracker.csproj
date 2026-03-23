@@ -1,8 +1,12 @@
 ﻿<Project Sdk="Microsoft.NET.Sdk">
 
-  <PropertyGroup>
-    <TargetFramework>net48</TargetFramework>
-  </PropertyGroup>
+	<PropertyGroup>
+		<TargetFramework>net48</TargetFramework>
+		<AssemblyName>Oberyn.ClearsTracker</AssemblyName>
+		<Version>0.4.1</Version>
+		<PackageId>Oberyn.ClearsTracker</PackageId>
+		<BlishHUDModuleFileName>Oberyn.ClearsTracker_$(Version)</BlishHUDModuleFileName>
+	</PropertyGroup>
 
   <ItemGroup>
     <!--contentFiles: removes the Content folder that pops up in the solution explorer -->
